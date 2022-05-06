@@ -3,97 +3,89 @@ package lib
 import (
 	"io"
 	"net/http"
-	"net/url"
-	"path"
+	"os"
 	"strings"
 
 	"golang.org/x/net/html"
 )
 
-type Filters struct {
-	FollowExternal bool
-	OnlyUppers     bool
-	OnlyLowers     bool
-}
-
-func Parse(root string, filters Filters) []string {
-	resp, err := http.Get(root)
+func Parse(input string, output string) {
+	resp, err := http.Get(input)
 	if err != nil {
 		panic(err)
 	}
-	links := Catch(resp.Body)
-	urlRoot, err := url.Parse(root)
+	work, err := os.Create(output)
 	if err != nil {
 		panic(err)
 	}
-	var results []string
-	for _, link := range links {
-		urlLink, err := url.Parse(link)
-		if err != nil {
-			panic(err)
-		}
-		if !urlLink.IsAbs() {
-			urlLink = urlRoot.ResolveReference(urlLink)
-		}
-		if Filter(urlRoot, urlLink, filters) {
-			results = append(results, urlLink.String())
-		}
-	}
-	return results
+	Catch(resp.Body, work)
 }
 
-func Filter(urlRoot *url.URL, urlLink *url.URL, filters Filters) bool {
-	if !filters.FollowExternal && IsExternal(urlRoot, urlLink) {
-		return false
-	}
-	if filters.OnlyUppers && !IsSameOrUpper(urlRoot, urlLink) {
-		return false
-	}
-	if filters.OnlyLowers && !IsSameOrLower(urlRoot, urlLink) {
-		return false
-	}
-	return true
-}
-
-func IsExternal(urlRoot *url.URL, urlLink *url.URL) bool {
-	return urlLink.Host != urlRoot.Host
-}
-
-func IsSameOrUpper(urlRoot *url.URL, urlLink *url.URL) bool {
-	if IsExternal(urlLink, urlRoot) {
-		return false
-	}
-	dirRoot, _ := path.Split(urlRoot.Path)
-	dirLink, _ := path.Split(urlLink.Path)
-	return strings.HasPrefix(dirRoot, dirLink)
-}
-
-func IsSameOrLower(urlRoot *url.URL, urlLink *url.URL) bool {
-	if IsExternal(urlLink, urlRoot) {
-		return false
-	}
-	dirRoot, _ := path.Split(urlRoot.Path)
-	dirLink, _ := path.Split(urlLink.Path)
-	return strings.HasPrefix(dirLink, dirRoot)
-}
-
-func Catch(fromReader io.ReadCloser) []string {
+func Catch(fromReader io.ReadCloser, toWriter *os.File) {
 	defer fromReader.Close()
-	var results []string
+	defer toWriter.Close()
 	tkns := html.NewTokenizer(fromReader)
+	var open_by = []string{}
+	var blocked_by = []string{}
 	for {
 		tknType := tkns.Next()
+		if tknType == html.ErrorToken {
+			return
+		}
+		tkn := tkns.Token()
 		switch {
-		case tknType == html.ErrorToken:
-			return results
 		case tknType == html.StartTagToken:
-			tkn := tkns.Token()
-			if tkn.Data == "a" {
-				for _, attr := range tkn.Attr {
-					if attr.Key == "href" {
-						results = append(results, strings.ToLower(attr.Val))
-					}
+			if tkn.Data == "h1" {
+				toWriter.WriteString("\n# ")
+				open_by = append(open_by, tkn.Data)
+			} else if tkn.Data == "h2" {
+				toWriter.WriteString("\n## ")
+				open_by = append(open_by, tkn.Data)
+			} else if tkn.Data == "h3" {
+				toWriter.WriteString("\n### ")
+				open_by = append(open_by, tkn.Data)
+			} else if tkn.Data == "h4" {
+				toWriter.WriteString("\n#### ")
+				open_by = append(open_by, tkn.Data)
+			} else if tkn.Data == "h5" {
+				toWriter.WriteString("\n##### ")
+				open_by = append(open_by, tkn.Data)
+			} else if tkn.Data == "h6" {
+				toWriter.WriteString("\n###### ")
+				open_by = append(open_by, tkn.Data)
+			} else if tkn.Data == "p" {
+				open_by = append(open_by, tkn.Data)
+			} else if tkn.Data == "div" {
+				open_by = append(open_by, tkn.Data)
+			} else if tkn.Data == "span" {
+				open_by = append(open_by, tkn.Data)
+			} else if tkn.Data == "a" {
+				open_by = append(open_by, tkn.Data)
+			} else if tkn.Data == "style" {
+				blocked_by = append(blocked_by, tkn.Data)
+			} else if tkn.Data == "script" {
+				blocked_by = append(blocked_by, tkn.Data)
+			}
+		case tknType == html.TextToken:
+			if len(open_by) > 0 && len(blocked_by) == 0 {
+				text := strings.TrimSpace(tkn.Data)
+				if len(text) > 0 {
+					toWriter.WriteString(text)
+					toWriter.WriteString(" ")
 				}
+			}
+		case tknType == html.EndTagToken:
+			if len(open_by) > 0 && open_by[len(open_by)-1] == tkn.Data {
+				if strings.HasPrefix(tkn.Data, "h") {
+					toWriter.WriteString("\n\n")
+				} else if tkn.Data == "p" {
+					toWriter.WriteString("\n")
+				} else if tkn.Data == "div" {
+					toWriter.WriteString("\n")
+				}
+				open_by = open_by[:len(open_by)-1]
+			} else if len(blocked_by) > 0 && blocked_by[len(blocked_by)-1] == tkn.Data {
+				blocked_by = blocked_by[:len(blocked_by)-1]
 			}
 		}
 	}

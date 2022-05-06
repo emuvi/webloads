@@ -1,3 +1,3 @@
 # WebLoads
 
-WebLoads is a library and a command program that loads websites files and saves it's texts and images.
+WebLoads is a library and a command program that loads an website contents, texts and images, formats as Markdown, and saves on output.
