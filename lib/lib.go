@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"golang.org/x/net/html"
 )
@@ -14,79 +15,92 @@ func Parse(input string, output string) {
 	if err != nil {
 		panic(err)
 	}
-	work, err := os.Create(output)
+	file, err := os.Create(output)
 	if err != nil {
 		panic(err)
 	}
-	Catch(resp.Body, work)
+	defer file.Close()
+	GetContents(resp.Body, file)
+	PutReferences(file, input)
 }
 
-func Catch(fromReader io.ReadCloser, toWriter *os.File) {
+func GetContents(fromReader io.ReadCloser, toFile *os.File) {
 	defer fromReader.Close()
-	defer toWriter.Close()
-	tkns := html.NewTokenizer(fromReader)
+	tokens := html.NewTokenizer(fromReader)
 	var open_by = []string{}
 	var blocked_by = []string{}
 	for {
-		tknType := tkns.Next()
-		if tknType == html.ErrorToken {
+		typed := tokens.Next()
+		if typed == html.ErrorToken {
 			return
 		}
-		tkn := tkns.Token()
+		token := tokens.Token()
 		switch {
-		case tknType == html.StartTagToken:
-			if tkn.Data == "h1" {
-				toWriter.WriteString("\n# ")
-				open_by = append(open_by, tkn.Data)
-			} else if tkn.Data == "h2" {
-				toWriter.WriteString("\n## ")
-				open_by = append(open_by, tkn.Data)
-			} else if tkn.Data == "h3" {
-				toWriter.WriteString("\n### ")
-				open_by = append(open_by, tkn.Data)
-			} else if tkn.Data == "h4" {
-				toWriter.WriteString("\n#### ")
-				open_by = append(open_by, tkn.Data)
-			} else if tkn.Data == "h5" {
-				toWriter.WriteString("\n##### ")
-				open_by = append(open_by, tkn.Data)
-			} else if tkn.Data == "h6" {
-				toWriter.WriteString("\n###### ")
-				open_by = append(open_by, tkn.Data)
-			} else if tkn.Data == "p" {
-				open_by = append(open_by, tkn.Data)
-			} else if tkn.Data == "div" {
-				open_by = append(open_by, tkn.Data)
-			} else if tkn.Data == "span" {
-				open_by = append(open_by, tkn.Data)
-			} else if tkn.Data == "a" {
-				open_by = append(open_by, tkn.Data)
-			} else if tkn.Data == "style" {
-				blocked_by = append(blocked_by, tkn.Data)
-			} else if tkn.Data == "script" {
-				blocked_by = append(blocked_by, tkn.Data)
+		case typed == html.StartTagToken:
+			if token.Data == "h1" {
+				toFile.WriteString("\n# ")
+				open_by = append(open_by, token.Data)
+			} else if token.Data == "h2" {
+				toFile.WriteString("\n## ")
+				open_by = append(open_by, token.Data)
+			} else if token.Data == "h3" {
+				toFile.WriteString("\n### ")
+				open_by = append(open_by, token.Data)
+			} else if token.Data == "h4" {
+				toFile.WriteString("\n#### ")
+				open_by = append(open_by, token.Data)
+			} else if token.Data == "h5" {
+				toFile.WriteString("\n##### ")
+				open_by = append(open_by, token.Data)
+			} else if token.Data == "h6" {
+				toFile.WriteString("\n###### ")
+				open_by = append(open_by, token.Data)
+			} else if token.Data == "p" {
+				open_by = append(open_by, token.Data)
+			} else if token.Data == "div" {
+				open_by = append(open_by, token.Data)
+			} else if token.Data == "span" {
+				open_by = append(open_by, token.Data)
+			} else if token.Data == "a" {
+				open_by = append(open_by, token.Data)
+			} else if token.Data == "style" {
+				blocked_by = append(blocked_by, token.Data)
+			} else if token.Data == "script" {
+				blocked_by = append(blocked_by, token.Data)
 			}
-		case tknType == html.TextToken:
+		case typed == html.TextToken:
 			if len(open_by) > 0 && len(blocked_by) == 0 {
-				text := strings.TrimSpace(tkn.Data)
+				text := strings.TrimSpace(token.Data)
 				if len(text) > 0 {
-					toWriter.WriteString(text)
-					toWriter.WriteString(" ")
+					toFile.WriteString(text)
+					toFile.WriteString(" ")
 				}
 			}
-		case tknType == html.EndTagToken:
-			if len(open_by) > 0 && open_by[len(open_by)-1] == tkn.Data {
-				if strings.HasPrefix(tkn.Data, "h") {
-					toWriter.WriteString("\n\n")
-				} else if tkn.Data == "p" {
-					toWriter.WriteString("\n")
-				} else if tkn.Data == "div" {
-					toWriter.WriteString("\n")
+		case typed == html.EndTagToken:
+			if len(open_by) > 0 && open_by[len(open_by)-1] == token.Data {
+				if strings.HasPrefix(token.Data, "h") {
+					toFile.WriteString("\n\n")
+				} else if token.Data == "p" {
+					toFile.WriteString("\n")
+				} else if token.Data == "div" {
+					toFile.WriteString("\n")
 				}
 				open_by = open_by[:len(open_by)-1]
-			} else if len(blocked_by) > 0 && blocked_by[len(blocked_by)-1] == tkn.Data {
+			} else if len(blocked_by) > 0 && blocked_by[len(blocked_by)-1] == token.Data {
 				blocked_by = blocked_by[:len(blocked_by)-1]
 			}
 		}
 	}
+}
+
+func PutReferences(file *os.File, input string) {
+	file.WriteString("\n")
+	file.WriteString("\n###### WebLoads Reference")
+	file.WriteString("\n")
+	file.WriteString("\n- From: <")
+	file.WriteString(input)
+	file.WriteString(">")
+	file.WriteString("\n- Time: ")
+	file.WriteString(time.Now().UTC().Format(time.RFC3339))
+	file.WriteString("\n")
 }
