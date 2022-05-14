@@ -27,8 +27,8 @@ func Parse(input string, output string) {
 func GetContents(fromReader io.ReadCloser, toFile *os.File) {
 	defer fromReader.Close()
 	tokens := html.NewTokenizer(fromReader)
-	var open_by = []string{}
-	var blocked_by = []string{}
+	var blocks_stack = []Block{}
+	var ignore_stack = []string{}
 	for {
 		typed := tokens.Next()
 		if typed == html.ErrorToken {
@@ -38,56 +38,117 @@ func GetContents(fromReader io.ReadCloser, toFile *os.File) {
 		switch {
 		case typed == html.StartTagToken:
 			if token.Data == "h1" {
-				toFile.WriteString("\n# ")
-				open_by = append(open_by, token.Data)
+				blocks_stack = append(blocks_stack, Block{
+					tag:    token.Data,
+					opener: "# ",
+					texted: "",
+					closer: "\n\n",
+				})
 			} else if token.Data == "h2" {
-				toFile.WriteString("\n## ")
-				open_by = append(open_by, token.Data)
+				blocks_stack = append(blocks_stack, Block{
+					tag:    token.Data,
+					opener: "## ",
+					texted: "",
+					closer: "\n\n",
+				})
 			} else if token.Data == "h3" {
-				toFile.WriteString("\n### ")
-				open_by = append(open_by, token.Data)
+				blocks_stack = append(blocks_stack, Block{
+					tag:    token.Data,
+					opener: "### ",
+					texted: "",
+					closer: "\n\n",
+				})
 			} else if token.Data == "h4" {
-				toFile.WriteString("\n#### ")
-				open_by = append(open_by, token.Data)
+				blocks_stack = append(blocks_stack, Block{
+					tag:    token.Data,
+					opener: "#### ",
+					texted: "",
+					closer: "\n\n",
+				})
 			} else if token.Data == "h5" {
-				toFile.WriteString("\n##### ")
-				open_by = append(open_by, token.Data)
+				blocks_stack = append(blocks_stack, Block{
+					tag:    token.Data,
+					opener: "##### ",
+					texted: "",
+					closer: "\n\n",
+				})
 			} else if token.Data == "h6" {
-				toFile.WriteString("\n###### ")
-				open_by = append(open_by, token.Data)
+				blocks_stack = append(blocks_stack, Block{
+					tag:    token.Data,
+					opener: "###### ",
+					texted: "",
+					closer: "\n\n",
+				})
+			} else if token.Data == "pre" {
+				blocks_stack = append(blocks_stack, Block{
+					tag:    token.Data,
+					opener: "```\n",
+					texted: "",
+					closer: "\n```\n",
+				})
 			} else if token.Data == "p" {
-				open_by = append(open_by, token.Data)
+				blocks_stack = append(blocks_stack, Block{
+					tag:    token.Data,
+					opener: "",
+					texted: "",
+					closer: "\n",
+				})
 			} else if token.Data == "div" {
-				open_by = append(open_by, token.Data)
+				blocks_stack = append(blocks_stack, Block{
+					tag:    token.Data,
+					opener: "",
+					texted: "",
+					closer: "\n",
+				})
 			} else if token.Data == "span" {
-				open_by = append(open_by, token.Data)
+				blocks_stack = append(blocks_stack, Block{
+					tag:    token.Data,
+					opener: "",
+					texted: "",
+					closer: "",
+				})
 			} else if token.Data == "a" {
-				open_by = append(open_by, token.Data)
+				blocks_stack = append(blocks_stack, Block{
+					tag:    token.Data,
+					opener: "",
+					texted: "",
+					closer: "",
+				})
 			} else if token.Data == "style" {
-				blocked_by = append(blocked_by, token.Data)
+				ignore_stack = append(ignore_stack, token.Data)
 			} else if token.Data == "script" {
-				blocked_by = append(blocked_by, token.Data)
+				ignore_stack = append(ignore_stack, token.Data)
 			}
 		case typed == html.TextToken:
-			if len(open_by) > 0 && len(blocked_by) == 0 {
+			if len(blocks_stack) > 0 && len(ignore_stack) == 0 {
+				stacked := &blocks_stack[len(blocks_stack)-1]
 				text := strings.TrimSpace(token.Data)
 				if len(text) > 0 {
-					toFile.WriteString(text)
-					toFile.WriteString(" ")
+					if stacked.texted != "" {
+						stacked.texted += " "
+					}
+					stacked.texted += text
 				}
 			}
 		case typed == html.EndTagToken:
-			if len(open_by) > 0 && open_by[len(open_by)-1] == token.Data {
-				if strings.HasPrefix(token.Data, "h") {
-					toFile.WriteString("\n\n")
-				} else if token.Data == "p" {
-					toFile.WriteString("\n")
-				} else if token.Data == "div" {
-					toFile.WriteString("\n")
+			if len(ignore_stack) > 0 {
+				if token.Data == ignore_stack[len(ignore_stack)-1] {
+					ignore_stack = ignore_stack[:len(ignore_stack)-1]
 				}
-				open_by = open_by[:len(open_by)-1]
-			} else if len(blocked_by) > 0 && blocked_by[len(blocked_by)-1] == token.Data {
-				blocked_by = blocked_by[:len(blocked_by)-1]
+			} else if len(blocks_stack) > 0 {
+				stacked := &blocks_stack[len(blocks_stack)-1]
+				if stacked.tag == token.Data {
+					if stacked.texted != "" {
+						if stacked.opener != "" {
+							toFile.WriteString(stacked.opener)
+						}
+						toFile.WriteString(stacked.texted)
+						if stacked.closer != "" {
+							toFile.WriteString(stacked.closer)
+						}
+					}
+					blocks_stack = blocks_stack[:len(blocks_stack)-1]
+				}
 			}
 		}
 	}
@@ -100,7 +161,14 @@ func PutReferences(file *os.File, input string) {
 	file.WriteString("\n- From: <")
 	file.WriteString(input)
 	file.WriteString(">")
-	file.WriteString("\n- Time: ")
+	file.WriteString("\n- When: ")
 	file.WriteString(time.Now().UTC().Format(time.RFC3339))
 	file.WriteString("\n")
+}
+
+type Block struct {
+	tag    string
+	opener string
+	texted string
+	closer string
 }
