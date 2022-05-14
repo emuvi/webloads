@@ -7,7 +7,7 @@
       "request": "launch",
       "mode": "auto",
       "program": "${workspaceFolder}/main.go",
-      "args": ["-i", "http://emuvi.blog.br/"]
+      "args": ["-i", "https://www.petefreitag.com/item/883.cfm"]
     }
   ]
 }

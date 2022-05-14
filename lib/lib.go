@@ -24,8 +24,9 @@ func Parse(input string, output string) {
 	PutReferences(file, input)
 }
 
-func GetContents(fromReader io.ReadCloser, toFile *os.File) {
+func GetContents(fromReader io.ReadCloser, file *os.File) {
 	defer fromReader.Close()
+	writer := Writer{file, false}
 	tokens := html.NewTokenizer(fromReader)
 	var blocks_stack = []Block{}
 	var ignore_stack = []string{}
@@ -40,78 +41,67 @@ func GetContents(fromReader io.ReadCloser, toFile *os.File) {
 			if token.Data == "h1" {
 				blocks_stack = append(blocks_stack, Block{
 					tag:    token.Data,
-					opener: "# ",
-					texted: "",
+					opener: "\n\n# ",
 					closer: "\n\n",
 				})
 			} else if token.Data == "h2" {
 				blocks_stack = append(blocks_stack, Block{
 					tag:    token.Data,
-					opener: "## ",
-					texted: "",
+					opener: "\n\n## ",
 					closer: "\n\n",
 				})
 			} else if token.Data == "h3" {
 				blocks_stack = append(blocks_stack, Block{
 					tag:    token.Data,
-					opener: "### ",
-					texted: "",
+					opener: "\n\n### ",
 					closer: "\n\n",
 				})
 			} else if token.Data == "h4" {
 				blocks_stack = append(blocks_stack, Block{
 					tag:    token.Data,
-					opener: "#### ",
-					texted: "",
+					opener: "\n\n#### ",
 					closer: "\n\n",
 				})
 			} else if token.Data == "h5" {
 				blocks_stack = append(blocks_stack, Block{
 					tag:    token.Data,
-					opener: "##### ",
-					texted: "",
+					opener: "\n\n##### ",
 					closer: "\n\n",
 				})
 			} else if token.Data == "h6" {
 				blocks_stack = append(blocks_stack, Block{
 					tag:    token.Data,
-					opener: "###### ",
-					texted: "",
+					opener: "\n\n###### ",
 					closer: "\n\n",
 				})
 			} else if token.Data == "pre" {
 				blocks_stack = append(blocks_stack, Block{
 					tag:    token.Data,
-					opener: "```\n",
-					texted: "",
-					closer: "\n```\n",
+					opener: "\n```\n",
+					closer: "\n```\n\n",
 				})
 			} else if token.Data == "p" {
 				blocks_stack = append(blocks_stack, Block{
 					tag:    token.Data,
-					opener: "",
-					texted: "",
+					opener: "\n",
 					closer: "\n",
 				})
 			} else if token.Data == "div" {
 				blocks_stack = append(blocks_stack, Block{
 					tag:    token.Data,
-					opener: "",
-					texted: "",
+					opener: "\n",
 					closer: "\n",
 				})
 			} else if token.Data == "span" {
 				blocks_stack = append(blocks_stack, Block{
 					tag:    token.Data,
 					opener: "",
-					texted: "",
 					closer: "",
 				})
 			} else if token.Data == "a" {
 				blocks_stack = append(blocks_stack, Block{
 					tag:    token.Data,
 					opener: "",
-					texted: "",
 					closer: "",
 				})
 			} else if token.Data == "style" {
@@ -125,9 +115,10 @@ func GetContents(fromReader io.ReadCloser, toFile *os.File) {
 				text := strings.TrimSpace(token.Data)
 				if len(text) > 0 {
 					if stacked.texted != "" {
-						stacked.texted += " "
+						stacked.texted += " " + text
+					} else {
+						stacked.texted = text
 					}
-					stacked.texted += text
 				}
 			}
 		case typed == html.EndTagToken:
@@ -139,13 +130,29 @@ func GetContents(fromReader io.ReadCloser, toFile *os.File) {
 				stacked := &blocks_stack[len(blocks_stack)-1]
 				if stacked.tag == token.Data {
 					if stacked.texted != "" {
+						for i := len(blocks_stack) - 2; i >= 0; i-- {
+							parent := &blocks_stack[i]
+							if parent.opened {
+								break
+							} else {
+								if parent.opener != "" {
+									writer.Write(parent.opener)
+								}
+								parent.opened = true
+								if parent.texted != "" {
+									writer.Write(parent.texted)
+									parent.texted = ""
+								}
+							}
+						}
 						if stacked.opener != "" {
-							toFile.WriteString(stacked.opener)
+							writer.Write(stacked.opener)
 						}
-						toFile.WriteString(stacked.texted)
-						if stacked.closer != "" {
-							toFile.WriteString(stacked.closer)
-						}
+						stacked.opened = true
+						writer.Write(stacked.texted)
+					}
+					if stacked.opened && stacked.closer != "" {
+						writer.Write(stacked.closer)
 					}
 					blocks_stack = blocks_stack[:len(blocks_stack)-1]
 				}
@@ -169,6 +176,20 @@ func PutReferences(file *os.File, input string) {
 type Block struct {
 	tag    string
 	opener string
-	texted string
 	closer string
+	texted string
+	opened bool
+}
+
+type Writer struct {
+	file        *os.File
+	on_new_line bool
+}
+
+func (w *Writer) Write(part string) {
+	if !w.on_new_line {
+		w.file.WriteString(" ")
+	}
+	w.file.WriteString(part)
+	w.on_new_line = strings.HasSuffix(part, "\n")
 }
