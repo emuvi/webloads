@@ -30,6 +30,7 @@ func GetContents(fromBody io.ReadCloser) []string {
 	writer := Writer{}
 	tokens := html.NewTokenizer(fromBody)
 	var inContent = 0
+	var linkHref = ""
 	var inIgnored = []string{}
 	for {
 		typed := tokens.Next()
@@ -40,10 +41,10 @@ func GetContents(fromBody io.ReadCloser) []string {
 		switch {
 		case typed == html.StartTagToken:
 			if token.Data == "h1" {
-				writer.Write("\n# ")
+				writer.Write("\n\n# ")
 				inContent++
 			} else if token.Data == "h2" {
-				writer.Write("\n## ")
+				writer.Write("\n\n## ")
 				inContent++
 			} else if token.Data == "h3" {
 				writer.Write("\n### ")
@@ -66,9 +67,18 @@ func GetContents(fromBody io.ReadCloser) []string {
 			} else if token.Data == "p" {
 				writer.Write("\n")
 				inContent++
+			} else if token.Data == "code" {
+				writer.Write("`")
+				inContent++
 			} else if token.Data == "span" {
 				inContent++
 			} else if token.Data == "a" {
+				writer.Write("[")
+				for _, attr := range token.Attr {
+					if attr.Key == "href" {
+						linkHref = attr.Val
+					}
+				}
 				inContent++
 			} else if token.Data == "style" {
 				inIgnored = append(inIgnored, token.Data)
@@ -89,10 +99,10 @@ func GetContents(fromBody io.ReadCloser) []string {
 				}
 			} else {
 				if token.Data == "h1" {
-					writer.Write("\n")
+					writer.Write("\n\n")
 					inContent--
 				} else if token.Data == "h2" {
-					writer.Write("\n")
+					writer.Write("\n\n")
 					inContent--
 				} else if token.Data == "h3" {
 					writer.Write("\n")
@@ -115,9 +125,19 @@ func GetContents(fromBody io.ReadCloser) []string {
 				} else if token.Data == "p" {
 					writer.Write("\n")
 					inContent--
+				} else if token.Data == "code" {
+					writer.Write("`")
+					inContent--
 				} else if token.Data == "span" {
 					inContent--
 				} else if token.Data == "a" {
+					writer.Write("]")
+					if linkHref != "" {
+						writer.Write("(")
+						writer.Write(linkHref)
+						writer.Write(")")
+						linkHref = ""
+					}
 					inContent--
 				}
 			}
@@ -144,14 +164,27 @@ func PutReferences(file *os.File, input string) {
 }
 
 type Writer struct {
-	lines       []string
-	in_new_line bool
+	lines []string
+	ended string
 }
 
 func (w *Writer) Write(part string) {
-	if !w.in_new_line {
+	if w.shouldSpace(part) {
 		part = " " + part
 	}
 	w.lines = append(w.lines, part)
-	w.in_new_line = strings.HasSuffix(part, "\n")
+	w.ended = part[len(part)-1:]
+}
+
+func (w *Writer) shouldSpace(part string) bool {
+	if w.ended == "\n" {
+		return false
+	}
+	if w.ended == "[" || w.ended == "]" || part == "]" {
+		return false
+	}
+	if w.ended == "(" || part == ")" {
+		return false
+	}
+	return true
 }
