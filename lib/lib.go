@@ -20,144 +20,114 @@ func Parse(input string, output string) {
 		panic(err)
 	}
 	defer file.Close()
-	GetContents(resp.Body, file)
+	lines := GetContents(resp.Body)
+	WriteLines(file, lines)
 	PutReferences(file, input)
 }
 
-func GetContents(fromReader io.ReadCloser, file *os.File) {
-	defer fromReader.Close()
-	writer := Writer{file, false}
-	tokens := html.NewTokenizer(fromReader)
-	var blocks_stack = []Block{}
-	var ignore_stack = []string{}
+func GetContents(fromBody io.ReadCloser) []string {
+	defer fromBody.Close()
+	writer := Writer{}
+	tokens := html.NewTokenizer(fromBody)
+	var inContent = 0
+	var inIgnored = []string{}
 	for {
 		typed := tokens.Next()
 		if typed == html.ErrorToken {
-			return
+			return writer.lines
 		}
 		token := tokens.Token()
 		switch {
 		case typed == html.StartTagToken:
 			if token.Data == "h1" {
-				blocks_stack = append(blocks_stack, Block{
-					tag:    token.Data,
-					opener: "\n\n# ",
-					closer: "\n\n",
-				})
+				writer.Write("\n# ")
+				inContent++
 			} else if token.Data == "h2" {
-				blocks_stack = append(blocks_stack, Block{
-					tag:    token.Data,
-					opener: "\n\n## ",
-					closer: "\n\n",
-				})
+				writer.Write("\n## ")
+				inContent++
 			} else if token.Data == "h3" {
-				blocks_stack = append(blocks_stack, Block{
-					tag:    token.Data,
-					opener: "\n\n### ",
-					closer: "\n\n",
-				})
+				writer.Write("\n### ")
+				inContent++
 			} else if token.Data == "h4" {
-				blocks_stack = append(blocks_stack, Block{
-					tag:    token.Data,
-					opener: "\n\n#### ",
-					closer: "\n\n",
-				})
+				writer.Write("\n#### ")
+				inContent++
 			} else if token.Data == "h5" {
-				blocks_stack = append(blocks_stack, Block{
-					tag:    token.Data,
-					opener: "\n\n##### ",
-					closer: "\n\n",
-				})
+				writer.Write("\n##### ")
+				inContent++
 			} else if token.Data == "h6" {
-				blocks_stack = append(blocks_stack, Block{
-					tag:    token.Data,
-					opener: "\n\n###### ",
-					closer: "\n\n",
-				})
+				writer.Write("\n###### ")
+				inContent++
 			} else if token.Data == "pre" {
-				blocks_stack = append(blocks_stack, Block{
-					tag:    token.Data,
-					opener: "\n```\n",
-					closer: "\n```\n\n",
-				})
-			} else if token.Data == "p" {
-				blocks_stack = append(blocks_stack, Block{
-					tag:    token.Data,
-					opener: "\n",
-					closer: "\n",
-				})
+				writer.Write("\n```\n")
+				inContent++
 			} else if token.Data == "div" {
-				blocks_stack = append(blocks_stack, Block{
-					tag:    token.Data,
-					opener: "\n",
-					closer: "\n",
-				})
+				writer.Write("\n")
+				inContent++
+			} else if token.Data == "p" {
+				writer.Write("\n")
+				inContent++
 			} else if token.Data == "span" {
-				blocks_stack = append(blocks_stack, Block{
-					tag:    token.Data,
-					opener: "",
-					closer: "",
-				})
+				inContent++
 			} else if token.Data == "a" {
-				blocks_stack = append(blocks_stack, Block{
-					tag:    token.Data,
-					opener: "",
-					closer: "",
-				})
+				inContent++
 			} else if token.Data == "style" {
-				ignore_stack = append(ignore_stack, token.Data)
+				inIgnored = append(inIgnored, token.Data)
 			} else if token.Data == "script" {
-				ignore_stack = append(ignore_stack, token.Data)
+				inIgnored = append(inIgnored, token.Data)
 			}
 		case typed == html.TextToken:
-			if len(blocks_stack) > 0 && len(ignore_stack) == 0 {
-				stacked := &blocks_stack[len(blocks_stack)-1]
+			if inContent > 0 {
 				text := strings.TrimSpace(token.Data)
 				if len(text) > 0 {
-					if stacked.texted != "" {
-						stacked.texted += " " + text
-					} else {
-						stacked.texted = text
-					}
+					writer.Write(text)
 				}
 			}
 		case typed == html.EndTagToken:
-			if len(ignore_stack) > 0 {
-				if token.Data == ignore_stack[len(ignore_stack)-1] {
-					ignore_stack = ignore_stack[:len(ignore_stack)-1]
+			if len(inIgnored) > 0 {
+				if token.Data == inIgnored[len(inIgnored)-1] {
+					inIgnored = inIgnored[:len(inIgnored)-1]
 				}
-			} else if len(blocks_stack) > 0 {
-				stacked := &blocks_stack[len(blocks_stack)-1]
-				if stacked.tag == token.Data {
-					if stacked.texted != "" {
-						for i := len(blocks_stack) - 2; i >= 0; i-- {
-							parent := &blocks_stack[i]
-							if parent.opened {
-								break
-							} else {
-								if parent.opener != "" {
-									writer.Write(parent.opener)
-								}
-								parent.opened = true
-								if parent.texted != "" {
-									writer.Write(parent.texted)
-									parent.texted = ""
-								}
-							}
-						}
-						if stacked.opener != "" {
-							writer.Write(stacked.opener)
-						}
-						stacked.opened = true
-						writer.Write(stacked.texted)
-					}
-					if stacked.opened && stacked.closer != "" {
-						writer.Write(stacked.closer)
-					}
-					blocks_stack = blocks_stack[:len(blocks_stack)-1]
+			} else {
+				if token.Data == "h1" {
+					writer.Write("\n")
+					inContent--
+				} else if token.Data == "h2" {
+					writer.Write("\n")
+					inContent--
+				} else if token.Data == "h3" {
+					writer.Write("\n")
+					inContent--
+				} else if token.Data == "h4" {
+					writer.Write("\n")
+					inContent--
+				} else if token.Data == "h5" {
+					writer.Write("\n")
+					inContent--
+				} else if token.Data == "h6" {
+					writer.Write("\n")
+					inContent--
+				} else if token.Data == "pre" {
+					writer.Write("\n```\n")
+					inContent--
+				} else if token.Data == "div" {
+					writer.Write("\n")
+					inContent--
+				} else if token.Data == "p" {
+					writer.Write("\n")
+					inContent--
+				} else if token.Data == "span" {
+					inContent--
+				} else if token.Data == "a" {
+					inContent--
 				}
 			}
 		}
+	}
+}
+
+func WriteLines(file *os.File, lines []string) {
+	for _, line := range lines {
+		file.WriteString(line)
 	}
 }
 
@@ -173,23 +143,15 @@ func PutReferences(file *os.File, input string) {
 	file.WriteString("\n")
 }
 
-type Block struct {
-	tag    string
-	opener string
-	closer string
-	texted string
-	opened bool
-}
-
 type Writer struct {
-	file        *os.File
-	on_new_line bool
+	lines       []string
+	in_new_line bool
 }
 
 func (w *Writer) Write(part string) {
-	if !w.on_new_line {
-		w.file.WriteString(" ")
+	if !w.in_new_line {
+		part = " " + part
 	}
-	w.file.WriteString(part)
-	w.on_new_line = strings.HasSuffix(part, "\n")
+	w.lines = append(w.lines, part)
+	w.in_new_line = strings.HasSuffix(part, "\n")
 }
