@@ -33,13 +33,13 @@ func GetContents(fromBody io.ReadCloser) []string {
 	var linkHref = ""
 	var inIgnored = []string{}
 	for {
-		typed := tokens.Next()
-		if typed == html.ErrorToken {
+		kind := tokens.Next()
+		if kind == html.ErrorToken {
 			return writer.lines
 		}
 		token := tokens.Token()
 		switch {
-		case typed == html.StartTagToken:
+		case kind == html.StartTagToken:
 			if token.Data == "h1" {
 				writer.Write("\n\n# ")
 				inContent++
@@ -85,14 +85,14 @@ func GetContents(fromBody io.ReadCloser) []string {
 			} else if token.Data == "script" {
 				inIgnored = append(inIgnored, token.Data)
 			}
-		case typed == html.TextToken:
+		case kind == html.TextToken:
 			if inContent > 0 {
 				text := strings.TrimSpace(token.Data)
 				if len(text) > 0 {
 					writer.Write(text)
 				}
 			}
-		case typed == html.EndTagToken:
+		case kind == html.EndTagToken:
 			if len(inIgnored) > 0 {
 				if token.Data == inIgnored[len(inIgnored)-1] {
 					inIgnored = inIgnored[:len(inIgnored)-1]
